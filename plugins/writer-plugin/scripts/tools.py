@@ -7,6 +7,7 @@ tooling and the existing plugin artifact mechanism.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from pathlib import Path
@@ -26,6 +27,9 @@ from lazymind.chat.engine.tools.writer import (
 )
 from lazymind.chat.engine.tools.multimodal import image_generator
 from lazymind.model_config import is_model_role_available
+
+
+LOG = logging.getLogger(__name__)
 
 
 def _workspace_root() -> Path:
@@ -299,7 +303,8 @@ def writer_collect_available_media(writing_task_path: str) -> dict:
             media_store=str(media_root),
             use_vision_model=is_model_role_available('vlm'),
         ), {})
-    except Exception as exc:
+    except Exception:
+        LOG.exception('Image collection failed.')
         task_id = str((_json_loads(writing_task_json, {}) or {}).get('task_id') or uuid.uuid4().hex)
         payload = {
             'media_assets': {
@@ -308,7 +313,7 @@ def writer_collect_available_media(writing_task_path: str) -> dict:
             },
             'profile_input_resources': resources,
             'warnings': [
-                f'Image collection failed: {type(exc).__name__}: {exc}',
+                '用户上传的图片无法安全读取，本次已跳过该图片；正文仍会继续生成。',
             ],
         }
     media_assets_path = _save_json_artifact(
@@ -477,15 +482,20 @@ def writer_resolve_visual_media(
             visual_plan_json=visual_plan_json,
             media_assets_json=media_assets_json,
         ), {})
-    except Exception as exc:
+    except Exception:
+        LOG.exception('Visual media resolution failed.')
         matched = {
             'media_assets': _json_loads(media_assets_json, {}),
             'acquisition_requests': [],
-            'warnings': [
-                f'Visual media resolution failed: {type(exc).__name__}: {exc}',
-            ],
+            'warnings': [],
         }
-    warnings = list(matched.get('warnings') or [])
+        warnings = [
+            '图片需求分析暂时失败，本次将跳过自动配图；正文仍会继续生成。',
+        ]
+    else:
+        warnings = []
+    for message in matched.get('warnings') or []:
+        LOG.warning('Visual media resolution warning: %s', message)
     acquired_resources = {}
     acquired_by_purpose = {}
     for request in matched.get('acquisition_requests') or []:
@@ -500,12 +510,13 @@ def writer_resolve_visual_media(
                 resource = _acquire_visual_media(request, acquirers)
                 acquired_by_purpose[key] = resource
             acquired_resources[instruction_id] = resource
-        except Exception as exc:
-            message = (
-                f'Failed to acquire visual instruction {instruction_id!r}: '
-                f'{type(exc).__name__}: {exc}'
-            )
-            warnings.append(f'{message} (required={request.get("required", False)}).')
+        except Exception:
+            LOG.exception('Failed to acquire visual media for %s.', instruction_id)
+            purpose = ' '.join(str(request.get('purpose') or '').split()) or '当前视觉需求'
+            if request.get('required'):
+                warnings.append(f'未能为“{purpose}”获取可安全使用的图片，已跳过该配图；正文仍会继续生成。')
+            else:
+                warnings.append(f'未找到适合“{purpose}”的图片，本次已跳过配图。')
 
     try:
         outcome = _json_loads(toolkit.materialize_acquired_media(
@@ -514,14 +525,18 @@ def writer_resolve_visual_media(
             acquired_resources_json=json.dumps(acquired_resources, ensure_ascii=False),
             media_store=str(media_root),
         ), {})
-    except Exception as exc:
+    except Exception:
+        LOG.exception('Acquired media materialization failed.')
         outcome = {
             'media_assets': matched.get('media_assets') or {},
-            'warnings': [
-                f'Acquired media materialization failed: {type(exc).__name__}: {exc}',
-            ],
+            'warnings': [],
         }
-    warnings.extend(outcome.get('warnings') or [])
+        warnings.append('图片素材准备失败，已跳过对应配图；正文仍会继续生成。')
+    outcome_warnings = outcome.get('warnings') or []
+    for message in outcome_warnings:
+        LOG.warning('Acquired media materialization warning: %s', message)
+    if outcome_warnings and not warnings:
+        warnings.append('部分图片素材准备失败，已跳过对应配图；正文仍会继续生成。')
     resolved_path = save_artifact_json(
         outcome.get('media_assets') or {},
         str(root / 'resolved_media_assets.json'),

@@ -250,6 +250,9 @@ steps:
               media_assets, save resolved_media_assets, then call
               writer_generate_draft_blocks with visual_plan and resolved_media_assets,
               followed by writer_generate_draft_document.
+            If writer_resolve_visual_media returns warnings, keep them in the execution context
+            and report them in the final response. Treat them as partial media completion: do not
+            claim that an image was generated or published when its warning says it was skipped.
             Save every returned section path as a separate ordered draft_blocks entry.
             Never stringify the path list or save it as one file entry. Save the assembled
             result as draft_document; save draft_document_md when returned.
