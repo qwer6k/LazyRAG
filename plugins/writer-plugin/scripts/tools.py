@@ -45,6 +45,9 @@ from lazymind.chat.engine.tools.writer import (
     WriterToolkitBase,
     writer_schema,
 )
+from lazymind.chat.engine.tools.infra.image_generation_support import (
+    _download_remote_image_to_upload,
+)
 from lazymind.chat.engine.tools.multimodal import image_generator
 from lazymind.model_config import is_model_role_available
 
@@ -578,6 +581,56 @@ def _acquire_generated_image(
     }
 
 
+def _acquire_web_search_image(request: Mapping[str, Any]) -> dict:
+    """Acquire an image via image-plugin's image_search_tool (Tavily/Bocha/fallback)."""
+    from lazymind.chat.plugin import plugin_loader
+    search_tool = plugin_loader.get_script_tool('image-plugin', 'image_search_tool')
+    if search_tool is None:
+        raise ValueError('image-plugin image_search_tool is unavailable')
+    query = str(request.get('purpose') or '').strip()
+    if not query:
+        raise ValueError('web_search requires a purpose to build the query')
+    text = search_tool(query)
+    urls = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith(('http://', 'https://'))
+    ]
+    if not urls:
+        raise ValueError('web_search returned no image URLs')
+    image_url = urls[0]
+    validate = plugin_loader.get_script_tool('image-plugin', 'validate_image_ref')
+    if validate is not None:
+        result = validate(image_url)
+        status = next(
+            (line.split(':', 1)[1].strip() for line in result.splitlines()
+             if line.startswith('status:')),
+            'invalid',
+        )
+        if status != 'ok':
+            raise ValueError(f'web_search image invalid: {image_url}')
+        url_line = next(
+            (line.split(':', 1)[1].strip() for line in result.splitlines()
+             if line.startswith('url:')),
+            None,
+        )
+        if url_line:
+            image_url = url_line
+    return {
+        'resource_id': f"web-{request.get('instruction_id') or uuid.uuid4().hex}",
+        'resource_type': 'image',
+        'uri': _download_remote_image_to_upload(image_url),
+        'title': image_url.rsplit('/', 1)[-1],
+        'summary': query,
+        'meta': {
+            'source_type': 'web_search',
+            'source_url': image_url,
+            'summary_source': 'web_search_purpose',
+            'semantic_status': 'unverified',
+        },
+    }
+
+
 def _acquire_visual_media(
     request: Mapping[str, Any],
     acquirers: Mapping[str, Callable[[Mapping[str, Any]], dict]],
@@ -587,7 +640,10 @@ def _acquire_visual_media(
         acquirer = acquirers.get(strategy)
         if acquirer is None:
             continue
-        resource = dict(acquirer(request))
+        try:
+            resource = dict(acquirer(request))
+        except Exception:
+            continue
         resource['meta'] = {
             **dict(resource.get('meta') or {}),
             'requested_strategy': strategies[0],
@@ -612,6 +668,7 @@ def writer_resolve_visual_media(
     media_root.mkdir(parents=True, exist_ok=True)
     toolkit = WriterCreateToolkit()
     acquirers = {}
+    acquirers['web_search'] = _acquire_web_search_image
     if is_model_role_available('image_generator'):
         acquirers['image_generation'] = _acquire_generated_image
     visual_plan_json = _read_json_string(visual_plan_path)
