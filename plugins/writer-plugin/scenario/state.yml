@@ -304,8 +304,12 @@ steps:
             visual_plan, and retain the returned document_title for final assembly. This
             call plans sections directly; do not generate or expose an outline artifact.
          3. Route from rewrite_base_document's file format without changing representation:
-            - Markdown: call writer_generate_draft_blocks_markdown, then
-              writer_generate_draft_document_markdown with document_title.
+            - Markdown: call writer_resolve_visual_media using visual_plan and
+              media_assets, save resolved_media_assets, then call
+              writer_generate_draft_blocks_markdown with visual_plan and
+              resolved_media_assets, followed by
+              writer_generate_draft_document_markdown with document_title and
+              resolved_media_assets.
             - IR: call writer_resolve_visual_media using visual_plan and media_assets, save
               resolved_media_assets, call writer_generate_draft_blocks with visual_plan and
               resolved_media_assets, then writer_generate_draft_document with document_title.

@@ -661,16 +661,22 @@ class WriterToolkitBase:
                 transient_outline.model_dump(exclude_defaults=True),
                 self.WRITER_IR_SCHEMA,
             )
-            try:
-                visual_result = planning.generate_visual_plan(
-                    task=task_path,
-                    outline=outline_path,
-                    context=context_path,
-                )
-                visual_plan = _primary_data(visual_result)
-                warnings.extend((visual_result.get('metadata') or {}).get('warnings') or [])
-            except Exception as exc:
-                warnings.append(f'Visual planning failed: {type(exc).__name__}: {exc}')
+        else:
+            transient_markdown = f'# {document_title}\n' + '\n'.join(
+                f'## {instruction.section_title}'
+                for instruction in instructions.instructions
+            )
+            outline_path = _write_document_input(root, 'rewrite_visual_outline', transient_markdown)
+        try:
+            visual_result = planning.generate_visual_plan(
+                task=task_path,
+                outline=outline_path,
+                context=context_path,
+            )
+            visual_plan = _primary_data(visual_result)
+            warnings.extend((visual_result.get('metadata') or {}).get('warnings') or [])
+        except Exception as exc:
+            warnings.append(f'Visual planning failed: {type(exc).__name__}: {exc}')
         return _json_dumps({
             'section_instructions': instructions.model_dump(exclude_defaults=True),
             'visual_plan': visual_plan,
