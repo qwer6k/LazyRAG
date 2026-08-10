@@ -36,6 +36,7 @@ value is merely a local path string does not satisfy an output and must be RETRY
   must not create a second Markdown draft artifact.
 - For targeted revision mode, document_revision_task, document_locate_result,
   document_modify_plan, document_revision_set, and document_revision_result must exist.
+- A targeted image-adding revision (IR or Markdown) also requires resolved_media_assets.
 - When the execution started without draft_document and used a cloud-bound `.lmd`
   source_document, document_write_result must report success and draft_document must be
   the provider-confirmed document returned by the write-back.

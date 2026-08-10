@@ -61,7 +61,9 @@ Targeted revision mode:
 
 1. use the latest selected `draft_document`, or `source_document` for direct revision;
 2. locate the requested content;
-3. generate and apply a PatchSet for IR or StringReplaceSet for Markdown;
+3. when the plan adds an image (IR or Markdown), resolve it into `resolved_media_assets`
+   before generating the revision set, then generate and apply a PatchSet for IR or
+   StringReplaceSet for Markdown;
 4. save the result as the next revision of `draft_document`.
 
 Image insertion, replacement, movement, and deletion in the current document are
